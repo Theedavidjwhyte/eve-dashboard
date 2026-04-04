@@ -1,9 +1,10 @@
 /**
  * ARR Import Pipeline
  *
- * Processes the 13-column "Closed Won ARR" Salesforce report.
- * Handles deduplication, AD assignment, 50/50 splits, exemptions,
- * and "Not Elevate" flagging.
+ * Processes Salesforce reports — supports both:
+ *   A. The original 13-column "Closed Won ARR" report  (parseARRReport)
+ *   B. The new combined 26-column report that contains ALL stages
+ *      including Closed Won — auto-splits into OI rows + ARR rows (parseCombinedReport)
  *
  * Business rules (confirmed):
  *  1. Opp IDs 006Tl00000FRWhV + 006Tl00000GmNCP → ARR exempt (GDK one-off)
@@ -13,6 +14,8 @@
  */
 
 import { USERS } from "@/config/users"
+import { enrichRow } from "@/lib/enrichRow"
+import type { Deal } from "@/types"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -439,5 +442,132 @@ export function summariseARR(result: ARRImportResult): ARRSummary {
     exemptValue: trueExempt.reduce((s, d) => s + d.totalAbc, 0),
     notElevateCount: notElevateDeals.length,
     notElevateValue: notElevateDeals.reduce((s, d) => s + d.totalAbc, 0),
+  }
+}
+
+// ── Combined report parser ────────────────────────────────────────────────────
+/**
+ * parseCombinedReport
+ *
+ * Accepts the new 26-column Salesforce report that contains ALL pipeline stages
+ * plus Closed Won in a single export. Automatically:
+ *   - Routes "Closed Won" rows through the ARR processing pipeline
+ *   - Routes all other stages through enrichRow as OI deals
+ *   - Returns both datasets ready for store import
+ *
+ * Expected columns (26):
+ *   Close Date, Total ABC Currency, Total ABC, Stage, Account Owner,
+ *   Parent Account Owner Name, Account Team, Opportunity ID, Account Name,
+ *   User, Push Count, Age, Next Step, ABC Split Value Currency, ABC Split Value,
+ *   Total Initials Currency, Total Initials, Services Amount Currency,
+ *   Services Amount, Stage Duration, Opportunity Owner, Created By,
+ *   Created Date, Close Date (2), Ultimate Parent Account Name, Opportunity Name
+ */
+export interface CombinedReportResult {
+  oiDeals: Deal[]
+  arrResult: ARRImportResult
+  parseErrors: string[]
+  oiCount: number
+  arrCount: number
+}
+
+export function parseCombinedReport(rawText: string): CombinedReportResult {
+  const parseErrors: string[] = []
+
+  if (!rawText.trim()) {
+    return { oiDeals: [], arrResult: { deals: [], duplicateLog: [], exemptLog: [], parseErrors: [] }, parseErrors: ["No data provided"], oiCount: 0, arrCount: 0 }
+  }
+
+  // ── Detect delimiter ──
+  const firstLine = rawText.split("\n")[0]
+  const tabCount = (firstLine.match(/\t/g) ?? []).length
+  const commaCount = (firstLine.match(/,/g) ?? []).length
+  const delimiter = tabCount >= commaCount ? "\t" : ","
+
+  const lines = rawText.trim().split("\n")
+  if (lines.length < 2) {
+    return { oiDeals: [], arrResult: { deals: [], duplicateLog: [], exemptLog: [], parseErrors: [] }, parseErrors: ["No data rows found — include the header row"], oiCount: 0, arrCount: 0 }
+  }
+
+  // ── Parse headers ──
+  const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ""))
+
+  const idx = (names: string[]): number => {
+    for (const name of names) {
+      const i = headers.findIndex((h) => h.toLowerCase().includes(name.toLowerCase()))
+      if (i >= 0) return i
+    }
+    return -1
+  }
+
+  const stageCol = idx(["Stage"])
+  const userCol  = idx(["User"])
+  const oppIdCol = idx(["Opportunity ID"])
+
+  if (stageCol < 0 || oppIdCol < 0) {
+    parseErrors.push("Missing required columns: Stage and Opportunity ID must be present")
+    return { oiDeals: [], arrResult: { deals: [], duplicateLog: [], exemptLog: [], parseErrors }, parseErrors, oiCount: 0, arrCount: 0 }
+  }
+
+  // ── Cell splitter (handles quoted fields) ──
+  function splitLine(line: string): string[] {
+    const cells: string[] = []
+    let inQuote = false
+    let cell = ""
+    for (let c = 0; c < line.length; c++) {
+      const ch = line[c]
+      if (ch === '"') { inQuote = !inQuote; continue }
+      if (ch === delimiter && !inQuote) { cells.push(cell); cell = ""; continue }
+      cell += ch
+    }
+    cells.push(cell)
+    return cells
+  }
+
+  // ── Separate raw lines into OI vs ARR ──
+  const oiLines: string[] = [lines[0]]   // start with header
+  const arrLines: string[] = [lines[0]]  // same header for ARR parser
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line.trim()) continue
+    const cells = splitLine(line)
+    const stage = (cells[stageCol] ?? "").trim().toLowerCase()
+    if (stage === "closed won") {
+      arrLines.push(line)
+    } else {
+      // Only include rows with a valid user for OI
+      const user = userCol >= 0 ? (cells[userCol] ?? "").trim() : ""
+      if (user) oiLines.push(line)
+    }
+  }
+
+  // ── Process OI rows via Papa + enrichRow ──
+  const oiDeals: Deal[] = []
+  if (oiLines.length > 1) {
+    const oiText = oiLines.join("\n")
+    // Build Deal objects from raw rows
+    const oiHeaders = oiLines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ""))
+    for (let i = 1; i < oiLines.length; i++) {
+      const cells = splitLine(oiLines[i])
+      const raw: Deal = {}
+      oiHeaders.forEach((h, j) => { raw[h] = (cells[j] ?? "").trim() })
+      // Normalise User field
+      if (!raw["User"] && raw["Opportunity Owner"]) raw["User"] = raw["Opportunity Owner"] as string
+      oiDeals.push(enrichRow(raw))
+    }
+  }
+
+  // ── Process ARR rows via existing parseARRReport ──
+  const arrResult = arrLines.length > 1
+    ? parseARRReport(arrLines.join("\n"))
+    : { deals: [], duplicateLog: [], exemptLog: [], parseErrors: [] }
+
+  return {
+    oiDeals,
+    arrResult,
+    parseErrors,
+    oiCount: oiDeals.length,
+    arrCount: arrResult.deals.length,
   }
 }

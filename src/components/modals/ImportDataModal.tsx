@@ -1,6 +1,5 @@
 import { useState, useRef } from "react"
-import Papa from "papaparse"
-import { Upload, X, FileText, TrendingUp } from "lucide-react"
+import { Upload, X, FileText, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -10,294 +9,235 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { useDashboardStore } from "@/store/dashboardStore"
-import { enrichRow } from "@/lib/enrichRow"
-import { parseARRReport, summariseARR } from "@/lib/arrImport"
-import type { Deal } from "@/types"
+import { parseCombinedReport } from "@/lib/arrImport"
 
 interface ImportDataModalProps {
   open: boolean
   onClose: () => void
 }
 
-type ImportTab = "oi" | "arr"
-
 export function ImportDataModal({ open, onClose }: ImportDataModalProps) {
   const { importData, importARRData } = useDashboardStore()
 
-  const [activeTab, setActiveTab] = useState<ImportTab>("oi")
+  const [raw, setRaw]           = useState("")
+  const [error, setError]       = useState("")
+  const [processing, setProcessing] = useState(false)
+  const [result, setResult]     = useState<{
+    oiCount: number
+    arrCount: number
+    dupCount: number
+    exemptCount: number
+  } | null>(null)
 
-  // OI state
-  const [oiRaw, setOiRaw] = useState("")
-  const [oiError, setOiError] = useState("")
-  const [oiWarnings, setOiWarnings] = useState<string[]>([])
-  const [oiSuccess, setOiSuccess] = useState("")
-  const oiFileRef = useRef<HTMLInputElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  // ARR state
-  const [arrRaw, setArrRaw] = useState("")
-  const [arrError, setArrError] = useState("")
-  const [arrSuccess, setArrSuccess] = useState("")
-  const arrFileRef = useRef<HTMLInputElement>(null)
+  // ── Process ───────────────────────────────────────────────────────────────
 
-  // ── OI Import ──────────────────────────────────────────────────────────────
+  function handleProcess() {
+    if (!raw.trim()) { setError("Please paste your Salesforce report data first."); return }
 
-  function handleOIProcess() {
-    if (!oiRaw.trim()) { setOiError("Please paste your data first."); return }
+    setProcessing(true)
+    setError("")
+    setResult(null)
 
-    const firstLine = oiRaw.split("\n")[0]
-    const tabCount = (firstLine.match(/\t/g) ?? []).length
-    const commaCount = (firstLine.match(/,/g) ?? []).length
-    const delimiter = tabCount > commaCount ? "\t" : undefined
+    // Small timeout so the UI can update before the parse runs
+    setTimeout(() => {
+      try {
+        const parsed = parseCombinedReport(raw)
 
-    const parsed = Papa.parse<Record<string, string>>(oiRaw, {
-      header: true, skipEmptyLines: true, dynamicTyping: false, delimiter,
-    })
+        if (parsed.parseErrors.length > 0) {
+          setError(parsed.parseErrors.join("; "))
+          setProcessing(false)
+          return
+        }
 
-    if (parsed.data.length === 0) {
-      setOiError("No data parsed. Make sure you include the header row.")
-      return
-    }
+        if (parsed.oiCount === 0 && parsed.arrCount === 0) {
+          setError("No deals found after processing. Check the report format and ensure the header row is included.")
+          setProcessing(false)
+          return
+        }
 
-    const headers = parsed.meta.fields ?? []
-    const hasUser = headers.some((h) =>
-      ["User", "user", "Opportunity Owner", "opportunity owner"].includes(h.trim())
-    )
-    if (!hasUser) {
-      setOiError(`Missing "User" or "Opportunity Owner" column. Headers: ${headers.slice(0, 6).join(", ")}`)
-      return
-    }
+        // Push OI data to store
+        if (parsed.oiCount > 0) {
+          importData(raw, parsed.oiDeals)
+        }
 
-    const rows: Deal[] = parsed.data
-      .filter((r) => {
-        const user = r["User"] ?? r["user"] ?? r["Opportunity Owner"] ?? r["opportunity owner"] ?? ""
-        return user.trim().length > 0
-      })
-      .map((r) => {
-        const n: Deal = {}
-        for (const [k, v] of Object.entries(r)) n[k.trim()] = v
-        if (!n["User"] && n["Opportunity Owner"]) n["User"] = n["Opportunity Owner"]
-        return enrichRow(n)
-      })
+        // Push ARR data to store
+        if (parsed.arrCount > 0 || parsed.arrResult.exemptLog.length > 0) {
+          importARRData(
+            parsed.arrResult.deals,
+            parsed.arrResult.duplicateLog,
+            parsed.arrResult.exemptLog,
+          )
+        }
 
-    if (rows.length === 0) {
-      setOiError("Data was parsed but no rows matched known users. Check your User column.")
-      return
-    }
+        setResult({
+          oiCount:    parsed.oiCount,
+          arrCount:   parsed.arrCount,
+          dupCount:   parsed.arrResult.duplicateLog.reduce((s, d) => s + d.rowCount - 1, 0),
+          exemptCount: parsed.arrResult.exemptLog.length,
+        })
 
-    const warns: string[] = []
-    const noClose = rows.filter((r) => !r._month).length
-    const noValue = rows.filter((r) => (r._val ?? 0) === 0).length
-    if (noClose > 3) warns.push(`${noClose} deals have no close date`)
-    if (noValue > rows.length * 0.3)
-      warns.push(`${Math.round((noValue / rows.length) * 100)}% of deals have £0 value`)
-
-    importData(oiRaw, rows)
-    setOiWarnings(warns)
-    setOiError("")
-    setOiSuccess(`✓ ${rows.length.toLocaleString()} deals imported successfully`)
-
-    if (warns.length === 0) setTimeout(handleClose, 1200)
+        setProcessing(false)
+        setTimeout(handleClose, 2200)
+      } catch (e) {
+        setError(`Unexpected error: ${e instanceof Error ? e.message : String(e)}`)
+        setProcessing(false)
+      }
+    }, 50)
   }
 
-  function handleOIFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => setOiRaw((ev.target?.result as string) ?? "")
+    reader.onload = (ev) => {
+      setRaw((ev.target?.result as string) ?? "")
+      setError("")
+      setResult(null)
+    }
     reader.readAsText(file)
     e.target.value = ""
   }
-
-  // ── ARR Import ─────────────────────────────────────────────────────────────
-
-  function handleARRProcess() {
-    if (!arrRaw.trim()) { setArrError("Please paste your ARR report data first."); return }
-
-    const result = parseARRReport(arrRaw)
-
-    if (result.parseErrors.length > 0) {
-      setArrError(result.parseErrors.join("; "))
-      return
-    }
-
-    if (result.deals.length === 0) {
-      setArrError("No deals found after processing. Check the report format.")
-      return
-    }
-
-    importARRData(result.deals, result.duplicateLog, result.exemptLog)
-
-    const summary = summariseARR(result)
-    setArrError("")
-    setArrSuccess(
-      `✓ ${summary.totalDeals} ARR deals imported · £${Math.round(summary.totalValue).toLocaleString()} total · ` +
-      `${summary.duplicateCount} duplicates removed · ${summary.exemptCount} ARR exempt · ${summary.notElevateCount} Not Elevate`
-    )
-
-    setTimeout(handleClose, 2000)
-  }
-
-  function handleARRFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => setArrRaw((ev.target?.result as string) ?? "")
-    reader.readAsText(file)
-    e.target.value = ""
-  }
-
-  // ── Common ─────────────────────────────────────────────────────────────────
 
   function handleClose() {
-    setOiRaw(""); setOiError(""); setOiWarnings([]); setOiSuccess("")
-    setArrRaw(""); setArrError(""); setArrSuccess("")
+    setRaw("")
+    setError("")
+    setResult(null)
+    setProcessing(false)
     onClose()
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Import Data</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-primary" />
+            Import Salesforce Report
+          </DialogTitle>
           <DialogDescription>
-            Import your Salesforce pipeline report (OI) or the ARR closed-won report.
+            Paste your combined Salesforce report below. Pipeline deals and Closed Won (ARR) are automatically separated and imported together.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Tab switcher */}
-        <div className="flex gap-1 p-1 bg-muted rounded-lg shrink-0">
-          <button
-            onClick={() => setActiveTab("oi")}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === "oi"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            OI Pipeline Report
-          </button>
-          <button
-            onClick={() => setActiveTab("arr")}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === "arr"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <TrendingUp className="w-4 h-4" />
-            ARR Closed Won Report
-          </button>
-        </div>
+        <div className="flex flex-col gap-3 overflow-y-auto">
 
-        {/* OI Tab */}
-        {activeTab === "oi" && (
-          <div className="flex flex-col gap-3 overflow-y-auto">
-            <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3 space-y-1">
-              <p className="font-medium text-foreground">Salesforce Pipeline Report</p>
-              <p>Copy columns A–U from your Salesforce report (including headers) and paste below. Tab-separated or CSV both work.</p>
-              <p className="text-accent">Used for: Monthly/Quarterly/YTD forecasting, commit intelligence, pipeline analysis</p>
-            </div>
-
-            {oiError && (
-              <Alert variant="destructive">
-                <AlertDescription>{oiError}</AlertDescription>
-              </Alert>
-            )}
-            {oiSuccess && (
-              <Alert>
-                <AlertDescription className="text-green-600">{oiSuccess}</AlertDescription>
-              </Alert>
-            )}
-            {oiWarnings.length > 0 && (
-              <Alert>
-                <AlertDescription>
-                  Data loaded with warnings: {oiWarnings.join("; ")}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <textarea
-              value={oiRaw}
-              onChange={(e) => { setOiRaw(e.target.value); setOiError(""); setOiSuccess("") }}
-              placeholder="Paste your Salesforce pipeline data here (tab-separated or CSV, include header row)..."
-              className="w-full h-48 resize-none rounded-lg border border-border bg-muted/30 p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-
-            <div className="flex gap-2">
-              <Button onClick={handleOIProcess} className="flex-1">
-                Import Pipeline Data
-              </Button>
-              <Button variant="outline" onClick={() => oiFileRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-1" />
-                Upload File
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => { setOiRaw(""); setOiError(""); setOiSuccess("") }}>
-                <X className="w-4 h-4" />
-              </Button>
-              <input ref={oiFileRef} type="file" accept=".csv,.txt,.tsv" onChange={handleOIFile} className="hidden" />
-            </div>
-          </div>
-        )}
-
-        {/* ARR Tab */}
-        {activeTab === "arr" && (
-          <div className="flex flex-col gap-3 overflow-y-auto">
-            <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3 space-y-1">
-              <p className="font-medium text-foreground">ARR Closed Won Report — 13 columns</p>
-              <p>Expected columns: Close Date · Total ABC Currency · Total ABC · Stage · Account Owner · Parent Account Owner Name · Account Team · Opportunity ID · Account Name · User · Close Date (2) · Ultimate Parent Account Name · Opportunity Name</p>
-              <div className="pt-1 space-y-0.5">
-                <p><span className="text-green-500 font-medium">✓ Auto-applied:</span> Deduplication by Opp ID · Wingstop/Heineken 50/50 split · GDK exemptions · Not Elevate flagging</p>
+          {/* Column guide */}
+          <div className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground">Combined SF Report — 26 columns</p>
+                <p className="text-[11px] leading-relaxed">
+                  Close Date · Total ABC Currency · Total ABC · Stage · Account Owner · Parent Account Owner Name ·
+                  Account Team · Opportunity ID · Account Name · User · Push Count · Age · Next Step ·
+                  ABC Split Value Currency · ABC Split Value · Total Initials Currency · Total Initials ·
+                  Services Amount Currency · Services Amount · Stage Duration · Opportunity Owner ·
+                  Created By · Created Date · Close Date (2) · Ultimate Parent Account Name · Opportunity Name
+                </p>
               </div>
             </div>
-
-            {arrError && (
-              <Alert variant="destructive">
-                <AlertDescription>{arrError}</AlertDescription>
-              </Alert>
-            )}
-            {arrSuccess && (
-              <Alert>
-                <AlertDescription className="text-green-600 text-xs">{arrSuccess}</AlertDescription>
-              </Alert>
-            )}
-
-            <textarea
-              value={arrRaw}
-              onChange={(e) => { setArrRaw(e.target.value); setArrError(""); setArrSuccess("") }}
-              placeholder="Paste your ARR Closed Won report here (tab-separated from Salesforce, include header row)..."
-              className="w-full h-48 resize-none rounded-lg border border-border bg-muted/30 p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-
-            <div className="flex gap-2">
-              <Button onClick={handleARRProcess} className="flex-1">
-                Import ARR Data
-              </Button>
-              <Button variant="outline" onClick={() => arrFileRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-1" />
-                Upload File
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => { setArrRaw(""); setArrError(""); setArrSuccess("") }}>
-                <X className="w-4 h-4" />
-              </Button>
-              <input ref={arrFileRef} type="file" accept=".csv,.txt,.tsv" onChange={handleARRFile} className="hidden" />
-            </div>
-
-            <div className="text-xs text-muted-foreground bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-              <p className="font-medium text-amber-500 mb-1">Business rules applied automatically</p>
-              <ul className="space-y-0.5">
-                <li>• <strong>GDK opp IDs</strong> 006Tl00000FRWhV + 006Tl00000GmNCP → ARR exempt (one-off deals)</li>
-                <li>• <strong>Wingstop & Heineken</strong> → 50/50 split between Chevonne Souness & Dan Turner</li>
-                <li>• <strong>Not Elevate accounts</strong> (JDW, Nando's, Peach Pubs etc.) → exempt from ARR targets, visible in exemption log</li>
-                <li>• <strong>Duplicate opp IDs</strong> → deduplicated automatically (only one row per opp)</li>
-                <li>• <strong>HTML in Ultimate Parent</strong> → stripped automatically</li>
-              </ul>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Badge variant="outline" className="text-[10px] text-blue-500 border-blue-500/30 bg-blue-500/5">
+                Pipeline stages → OI Dashboard
+              </Badge>
+              <Badge variant="outline" className="text-[10px] text-green-500 border-green-500/30 bg-green-500/5">
+                Closed Won → ARR Performance
+              </Badge>
+              <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30 bg-amber-500/5">
+                Auto: dedup · splits · exemptions
+              </Badge>
             </div>
           </div>
-        )}
+
+          {/* Error */}
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="w-4 h-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Success */}
+          {result && (
+            <Alert className="border-green-500/30 bg-green-500/5">
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              <AlertDescription className="text-green-700 dark:text-green-400">
+                <span className="font-semibold">Import successful!</span>
+                <div className="flex flex-wrap gap-3 mt-1.5 text-xs">
+                  <span>
+                    <span className="font-bold text-blue-500">{result.oiCount}</span> OI pipeline deals
+                  </span>
+                  <span>
+                    <span className="font-bold text-green-500">{result.arrCount}</span> ARR closed-won
+                  </span>
+                  <span>
+                    <span className="font-bold text-amber-500">{result.dupCount}</span> duplicates removed
+                  </span>
+                  <span>
+                    <span className="font-bold text-muted-foreground">{result.exemptCount}</span> exempt/not-elevate
+                  </span>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Paste area */}
+          <textarea
+            value={raw}
+            onChange={(e) => { setRaw(e.target.value); setError(""); setResult(null) }}
+            placeholder="Paste your Salesforce report here (tab-separated or CSV, include the header row)..."
+            className="w-full h-52 resize-none rounded-lg border border-border bg-muted/30 p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            disabled={processing}
+          />
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button
+              onClick={handleProcess}
+              className="flex-1"
+              disabled={processing || !raw.trim()}
+            >
+              {processing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing…
+                </>
+              ) : (
+                "Import Report"
+              )}
+            </Button>
+            <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={processing}>
+              <Upload className="w-4 h-4 mr-1" />
+              Upload File
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => { setRaw(""); setError(""); setResult(null) }}
+              disabled={processing}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+            <input ref={fileRef} type="file" accept=".csv,.txt,.tsv" onChange={handleFile} className="hidden" />
+          </div>
+
+          {/* Business rules reminder */}
+          <div className="text-xs text-muted-foreground bg-muted/30 border border-border/50 rounded-lg p-3">
+            <p className="font-medium text-foreground mb-1.5">ARR business rules applied automatically</p>
+            <ul className="space-y-0.5 text-[11px]">
+              <li>• <strong>GDK opp IDs</strong> 006Tl00000FRWhV + 006Tl00000GmNCP → ARR exempt (one-off deals)</li>
+              <li>• <strong>Wingstop & Heineken</strong> → 50/50 split between Chevonne Souness & Dan Turner</li>
+              <li>• <strong>Not Elevate accounts</strong> (JDW, Nando's, Peach Pubs etc.) → excluded from ARR targets</li>
+              <li>• <strong>Duplicate opp IDs</strong> → deduplicated (multiple team member rows → kept as one)</li>
+            </ul>
+          </div>
+
+        </div>
       </DialogContent>
     </Dialog>
   )

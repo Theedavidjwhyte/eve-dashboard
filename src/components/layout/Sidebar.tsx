@@ -28,6 +28,7 @@ import {
   GitBranch,
   Send,
   LineChart,
+  AlertCircle,
 } from "lucide-react"
 
 interface SidebarProps {
@@ -65,7 +66,10 @@ const NAV_SECTIONS = [
   {
     label: "ARR",
     items: [
-      { id: "arr" as TabId, label: "ARR Performance", icon: LineChart },
+      { id: "arr"         as TabId, label: "ARR Performance", icon: LineChart },
+      { id: "arr-monthly" as TabId, label: "Monthly Intake",  icon: Calendar  },
+      { id: "arr-exempt"  as TabId, label: "Exemptions",      icon: AlertCircle },
+      { id: "arr-dupes"   as TabId, label: "Duplications",    icon: GitBranch },
     ],
   },
   {

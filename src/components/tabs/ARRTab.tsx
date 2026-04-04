@@ -9,7 +9,7 @@
  * 5. Duplication log — deduplicated rows removed
  */
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect, useRef } from "react"
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Download, TrendingUp } from "lucide-react"
 import { KPI } from "@/components/ui/kpi"
 import { Button } from "@/components/ui/button"
@@ -56,17 +56,19 @@ function attainmentColor(pct: number): string {
 // ── Collapsible section ───────────────────────────────────────────────────────
 
 function Collapsible({
-  title, badge, badgeVariant = "secondary", children, defaultOpen = false,
+  id, title, badge, badgeVariant = "secondary", action, children, defaultOpen = false,
 }: {
+  id?: string
   title: string
   badge?: string
   badgeVariant?: "secondary" | "destructive" | "outline"
+  action?: React.ReactNode
   children: React.ReactNode
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div id={id} className="border rounded-lg overflow-hidden scroll-mt-4">
       <button
         className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
         onClick={() => setOpen((o) => !o)}
@@ -75,7 +77,10 @@ function Collapsible({
           <span className="font-semibold text-sm">{title}</span>
           {badge && <Badge variant={badgeVariant} className="text-[10px]">{badge}</Badge>}
         </div>
-        {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          {action}
+          {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+        </div>
       </button>
       {open && <div className="p-4">{children}</div>}
     </div>
@@ -84,9 +89,28 @@ function Collapsible({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ARRTab() {
+export function ARRTab({ scrollTo }: { scrollTo?: string | null }) {
   const { arrDeals, arrDupLog, arrExemptLog, arrImportDate, oiTargets, arrBaseData } = useDashboardStore()
   const [expandedAD, setExpandedAD] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to section when navigated from sidebar
+  useEffect(() => {
+    if (!scrollTo) return
+    const idMap: Record<string, string> = {
+      monthly: "arr-section-monthly",
+      exempt:  "arr-section-exempt",
+      dupes:   "arr-section-dupes",
+    }
+    const targetId = idMap[scrollTo]
+    if (!targetId) return
+    // Small delay to allow render
+    const t = setTimeout(() => {
+      const el = document.getElementById(targetId)
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 100)
+    return () => clearTimeout(t)
+  }, [scrollTo])
 
   const loaded = arrDeals.length > 0
 
@@ -176,7 +200,7 @@ export function ARRTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" ref={containerRef}>
 
       {/* ── Import info bar ── */}
       <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/30 rounded-lg px-3 py-2">
@@ -425,7 +449,26 @@ export function ARRTab() {
       )}
 
       {/* ── Monthly summary ── */}
-      <Collapsible title="Monthly ARR Intake">
+      <Collapsible
+        id="arr-section-monthly"
+        title="Monthly ARR Intake"
+        action={
+          <button
+            title="Export Monthly ARR CSV"
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => {
+              const rows = MONTHS.filter((m) => (dealsByMonth[m]?.length ?? 0) > 0).map((m) => {
+                const mDeals = dealsByMonth[m] ?? []
+                const total = sumARR(mDeals)
+                return [m, String(mDeals.length), total.toFixed(2), String(mDeals.filter((d) => d.isSplit).length), mDeals.length > 0 ? (total / mDeals.length).toFixed(2) : "0"]
+              })
+              downloadCSV("ARR_Monthly_Intake.csv", [["Month","Deals","ARR Won","Splits","Avg Deal"], ...rows])
+            }}
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+        }
+      >
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -459,9 +502,25 @@ export function ARRTab() {
 
       {/* ── Exemptions ── */}
       <Collapsible
+        id="arr-section-exempt"
         title="Exemptions & Not Elevate"
         badge={`${arrExemptLog.length} deals`}
         badgeVariant={arrExemptLog.length > 0 ? "destructive" : "secondary"}
+        action={
+          <button
+            title="Export Exemptions CSV"
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => {
+              const rows = arrExemptLog.map((d) => [
+                d.closeDate, d.accountName, d.opportunityName, d.totalAbc.toFixed(2),
+                d.exemptReason, d.isNotElevate ? "Yes" : "No", d.opportunityId,
+              ])
+              downloadCSV("ARR_Exemptions.csv", [["Close Date","Account","Opportunity","Total ABC","Reason","Not Elevate","Opp ID"], ...rows])
+            }}
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+        }
       >
         <div className="space-y-4">
           {/* ARR Exempt (GDK etc.) */}
@@ -551,9 +610,27 @@ export function ARRTab() {
 
       {/* ── Duplication log ── */}
       <Collapsible
+        id="arr-section-dupes"
         title="Deduplication Log"
         badge={`${arrDupLog.length} removed`}
         badgeVariant={arrDupLog.length > 0 ? "outline" : "secondary"}
+        action={
+          arrDupLog.length > 0 ? (
+            <button
+              title="Export Duplication Log CSV"
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => {
+                const rows = arrDupLog.map((d) => [
+                  d.opportunityName, d.accountName, d.totalAbc.toFixed(2),
+                  String(d.rowCount), String(d.rowCount - 1), d.opportunityId,
+                ])
+                downloadCSV("ARR_Duplication_Log.csv", [["Opportunity","Account","Total ABC","Raw Rows","Rows Removed","Opp ID"], ...rows])
+              }}
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+          ) : undefined
+        }
       >
         {arrDupLog.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-green-600">

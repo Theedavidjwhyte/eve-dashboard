@@ -121,6 +121,9 @@ export type TabId =
   | "pipeline-creation"
   | "forecast-post"
   | "arr"
+  | "arr-monthly"
+  | "arr-exempt"
+  | "arr-dupes"
 
 // ── ARR Import ───────────────────────────────────────────────────────────────
 export type { ARRDeal, ARRImportResult, ARRDupLog } from "@/lib/arrImport"

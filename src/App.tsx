@@ -88,8 +88,11 @@ export default function App() {
   }, [])
 
   function renderTab() {
-    // ARR tab works without OI data
-    if (currentTab === "arr") return <ARRTab />
+    // ARR tab and sub-tabs work without OI data
+    if (currentTab === "arr")         return <ARRTab scrollTo={null} />
+    if (currentTab === "arr-monthly") return <ARRTab scrollTo="monthly" />
+    if (currentTab === "arr-exempt")  return <ARRTab scrollTo="exempt" />
+    if (currentTab === "arr-dupes")   return <ARRTab scrollTo="dupes" />
     if (currentTab === "network") return <NetworkTab />
 
     if (data.length === 0) {
