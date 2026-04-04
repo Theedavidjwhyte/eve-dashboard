@@ -284,18 +284,18 @@ export function MonthlyTab() {
                         <TableCell><ADCell name={u} /></TableCell>
                         <TableCell
                           className="text-right text-emerald-600 dark:text-emerald-400 font-semibold cursor-pointer"
-                          onClick={() => openDealModal(`${u.split(" ")[0]} Won`, data.filter((r) => r.User === u && r._stageSummary === "Won"))}
+                          onClick={() => openDealModal(`${u.split(" ")[0]} Won`, rows.filter((r) => r.User === u && r._stageSummary === "Won"))}
                         >
                           {fmt(uWon)}
                         </TableCell>
                         <TableCell className="text-right cursor-pointer"
-                          onClick={() => openDealModal(`${u.split(" ")[0]} Commit Pipe`, data.filter((r) => r.User === u && r._stageSummary === "Pipe" && r._commit === "Commit"))}>
+                          onClick={() => openDealModal(`${u.split(" ")[0]} Commit Pipe`, rows.filter((r) => r.User === u && r._stageSummary === "Pipe" && r._commit === "Commit"))}>
                           {fmt(uCP)}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-primary">{fmt(uTC)}</TableCell>
                         <TableCell className="text-right">{fmt(uUp)}</TableCell>
                         <TableCell className="text-right cursor-pointer"
-                          onClick={() => openDealModal(`${u.split(" ")[0]} Pipeline`, data.filter((r) => r.User === u && r._stageSummary === "Pipe"))}>
+                          onClick={() => openDealModal(`${u.split(" ")[0]} Pipeline`, rows.filter((r) => r.User === u && r._stageSummary === "Pipe"))}>
                           {fmt(uPipe)}
                         </TableCell>
                         <TableCell className="text-right">{fmt(uTarget)}</TableCell>

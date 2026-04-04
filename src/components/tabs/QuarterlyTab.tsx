@@ -135,7 +135,7 @@ export function QuarterlyTab() {
                 target={u.target}
                 riskCount={u.risk}
                 compact
-                onClick={() => openDealModal(`${u.user.split(" ")[0]} — Won`, data.filter((r) => r.User === u.user && r._stageSummary === "Won"))}
+                onClick={() => openDealModal(`${u.user.split(" ")[0]} — Won`, data.filter((r) => r.User === u.user && r._stageSummary === "Won" && (filters.product === "All" || r._product === filters.product) && (filters.quarter === "All" || QUARTERS[filters.quarter]?.includes(r._month ?? ""))))}
                 fmt={fmt}
                 fmtPct={fmtPct}
               />

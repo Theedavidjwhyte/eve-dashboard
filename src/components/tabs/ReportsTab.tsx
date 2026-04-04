@@ -402,6 +402,224 @@ export function ReportsTab() {
     reader.readAsText(file)
   }
 
+  // ── HTML DASHBOARD EXPORT ──
+  function exportHTMLDashboard() {
+    const { arrDeals, arrExemptLog, arrDupLog, arrBaseData, monthlyBudget } = useDashboardStore.getState()
+    const fmt = (n: number) => "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    const pct = (n: number) => (n * 100).toFixed(1) + "%"
+    const today2 = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+
+    // OI summary per AD
+    const adOI = USERS.map((u) => {
+      const won = data.filter((r) => r.User === u && r._stageSummary === "Won").reduce((s, r) => s + (r._val ?? 0), 0)
+      const pipe = data.filter((r) => r.User === u && r._stageSummary === "Pipe").reduce((s, r) => s + (r._val ?? 0), 0)
+      const commit = data.filter((r) => r.User === u && r._stageSummary === "Pipe" && r._commit === "Commit").reduce((s, r) => s + (r._val ?? 0), 0)
+      const budget = getADBudget(u, MONTHS, oiTargets)
+      const attainment = budget > 0 ? won / budget : 0
+      const forecast = won + commit
+      return { name: u.split(" ")[0], won, pipe, commit, budget, attainment, forecast }
+    })
+    const teamOI = {
+      won: adOI.reduce((s, a) => s + a.won, 0),
+      pipe: adOI.reduce((s, a) => s + a.pipe, 0),
+      commit: adOI.reduce((s, a) => s + a.commit, 0),
+      budget: adOI.reduce((s, a) => s + a.budget, 0),
+      forecast: adOI.reduce((s, a) => s + a.forecast, 0),
+    }
+
+    // ARR summary per AD
+    const arrByAD = USERS.map((u) => {
+      const firstName = u.split(" ")[0]
+      const deals = arrDeals.filter((d) => !d.isExempt && d.assignedAD === u)
+      const won = deals.reduce((s, d) => s + d.totalAbc, 0)
+      const baseRow = arrBaseData.filter((r) => r.ad === u)
+      const target = baseRow.reduce((s, r) => s + r.base * r.uplift, 0)
+      const attainment = target > 0 ? won / target : 0
+      return { name: firstName, won, target, attainment, deals: deals.length }
+    })
+    const teamARR = {
+      won: arrByAD.reduce((s, a) => s + a.won, 0),
+      target: arrByAD.reduce((s, a) => s + a.target, 0),
+      deals: arrByAD.reduce((s, a) => s + a.deals, 0),
+    }
+
+    // Monthly OI actuals
+    const monthlyRows = MONTHS.map((m) => {
+      const mWon = data.filter((r) => r._month === m && r._stageSummary === "Won").reduce((s, r) => s + (r._val ?? 0), 0)
+      const mBudget = monthlyBudget[m] ?? 0
+      return { m, mWon, mBudget }
+    }).filter((r) => r.mWon > 0 || r.mBudget > 0)
+
+    const adOIRows = adOI.map((a) => `
+      <tr>
+        <td>${a.name}</td>
+        <td class="money">${fmt(a.won)}</td>
+        <td class="money">${fmt(a.commit)}</td>
+        <td class="money">${fmt(a.forecast)}</td>
+        <td class="money">${fmt(a.pipe)}</td>
+        <td class="money">${fmt(a.budget)}</td>
+        <td class="${a.attainment >= 1 ? "green" : a.attainment >= 0.7 ? "amber" : "red"}">${pct(a.attainment)}</td>
+      </tr>`).join("")
+
+    const adARRRows = arrByAD.map((a) => `
+      <tr>
+        <td>${a.name}</td>
+        <td>${a.deals}</td>
+        <td class="money">${fmt(a.won)}</td>
+        <td class="money">${fmt(a.target)}</td>
+        <td class="${a.attainment >= 1 ? "green" : a.attainment >= 0.7 ? "amber" : "red"}">${pct(a.attainment)}</td>
+        <td class="money ${(a.target - a.won) > 0 ? "red" : "green"}">${(a.target - a.won) > 0 ? fmt(a.target - a.won) + " gap" : "✓ Covered"}</td>
+      </tr>`).join("")
+
+    const monthlyOIRows = monthlyRows.map(({ m, mWon, mBudget }) => {
+      const a = mBudget > 0 ? mWon / mBudget : 0
+      return `<tr>
+        <td>${m}</td>
+        <td class="money">${fmt(mWon)}</td>
+        <td class="money">${fmt(mBudget)}</td>
+        <td class="${a >= 1 ? "green" : a >= 0.6 ? "amber" : "red"}">${mBudget > 0 ? pct(a) : "—"}</td>
+      </tr>`
+    }).join("")
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>E.V.E Dashboard Export — ${today2}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; padding: 24px; }
+  h1 { font-size: 22px; font-weight: 800; color: #14b8a6; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #64748b; margin-bottom: 28px; }
+  h2 { font-size: 14px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin: 28px 0 12px; }
+  .kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+  .kpi { background: #1e2433; border: 1px solid #2d3748; border-radius: 10px; padding: 14px 18px; min-width: 150px; flex: 1; }
+  .kpi-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .kpi-value { font-size: 22px; font-weight: 800; color: #f1f5f9; }
+  .kpi-sub { font-size: 11px; color: #475569; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; background: #1e2433; border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
+  th { background: #161b2e; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; text-align: left; border-bottom: 1px solid #2d3748; }
+  td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #1a2235; }
+  tr:last-child td { border-bottom: none; }
+  tr.total td { background: #161b2e; font-weight: 700; border-top: 2px solid #2d3748; }
+  .money { font-variant-numeric: tabular-nums; text-align: right; }
+  th.money { text-align: right; }
+  .green { color: #22c55e; font-weight: 600; }
+  .amber { color: #f59e0b; font-weight: 600; }
+  .red { color: #ef4444; font-weight: 600; }
+  .bullet-section { background: #1e2433; border: 1px solid #2d3748; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .bullet-section h3 { font-size: 13px; font-weight: 700; color: #14b8a6; margin-bottom: 10px; }
+  ul { list-style: none; padding: 0; }
+  ul li { font-size: 13px; color: #cbd5e1; padding: 4px 0 4px 16px; position: relative; }
+  ul li::before { content: "•"; position: absolute; left: 0; color: #14b8a6; }
+  .footer { margin-top: 32px; font-size: 11px; color: #334155; text-align: center; }
+  @media (max-width: 600px) { .kpi-row { flex-direction: column; } }
+</style>
+</head>
+<body>
+<h1>⚡ E.V.E Dashboard Export</h1>
+<div class="subtitle">Generated ${today2} · Elevate Value Add Engine</div>
+
+<!-- OI KPIs -->
+<h2>OI Pipeline — Team Summary</h2>
+<div class="kpi-row">
+  <div class="kpi"><div class="kpi-label">YTD Won</div><div class="kpi-value">${fmt(teamOI.won)}</div><div class="kpi-sub">${data.filter((r) => r._stageSummary === "Won").length} deals</div></div>
+  <div class="kpi"><div class="kpi-label">Commit Pipe</div><div class="kpi-value">${fmt(teamOI.commit)}</div><div class="kpi-sub">In forecast</div></div>
+  <div class="kpi"><div class="kpi-label">Total Forecast</div><div class="kpi-value">${fmt(teamOI.forecast)}</div><div class="kpi-sub">Won + Commit</div></div>
+  <div class="kpi"><div class="kpi-label">Open Pipeline</div><div class="kpi-value">${fmt(teamOI.pipe)}</div><div class="kpi-sub">${data.filter((r) => r._stageSummary === "Pipe").length} deals</div></div>
+  <div class="kpi"><div class="kpi-label">FY Budget</div><div class="kpi-value">${fmt(teamOI.budget)}</div><div class="kpi-sub">${pct(teamOI.budget > 0 ? teamOI.won / teamOI.budget : 0)} attained</div></div>
+</div>
+
+<!-- OI by AD -->
+<table>
+  <thead><tr><th>Account Director</th><th class="money">Won</th><th class="money">Commit Pipe</th><th class="money">Total Forecast</th><th class="money">Open Pipeline</th><th class="money">FY Budget</th><th class="money">Attainment</th></tr></thead>
+  <tbody>
+    ${adOIRows}
+    <tr class="total">
+      <td>Team</td>
+      <td class="money">${fmt(teamOI.won)}</td>
+      <td class="money">${fmt(teamOI.commit)}</td>
+      <td class="money">${fmt(teamOI.forecast)}</td>
+      <td class="money">${fmt(teamOI.pipe)}</td>
+      <td class="money">${fmt(teamOI.budget)}</td>
+      <td class="${teamOI.budget > 0 && teamOI.won / teamOI.budget >= 1 ? "green" : teamOI.budget > 0 && teamOI.won / teamOI.budget >= 0.7 ? "amber" : "red"}">${pct(teamOI.budget > 0 ? teamOI.won / teamOI.budget : 0)}</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Monthly OI -->
+<h2>Monthly OI Actuals vs Budget</h2>
+<table>
+  <thead><tr><th>Month</th><th class="money">Won</th><th class="money">Budget</th><th>Attainment</th></tr></thead>
+  <tbody>${monthlyOIRows}</tbody>
+</table>
+
+${arrDeals.length > 0 ? `
+<!-- ARR KPIs -->
+<h2>ARR Performance — Team Summary</h2>
+<div class="kpi-row">
+  <div class="kpi"><div class="kpi-label">Total ARR Won</div><div class="kpi-value">${fmt(teamARR.won)}</div><div class="kpi-sub">${teamARR.deals} deals</div></div>
+  <div class="kpi"><div class="kpi-label">ARR Target</div><div class="kpi-value">${fmt(teamARR.target)}</div><div class="kpi-sub">Baseline + uplift</div></div>
+  <div class="kpi"><div class="kpi-label">Attainment</div><div class="kpi-value">${pct(teamARR.target > 0 ? teamARR.won / teamARR.target : 0)}</div><div class="kpi-sub">${fmt(Math.max(0, teamARR.target - teamARR.won))} remaining</div></div>
+  <div class="kpi"><div class="kpi-label">Exempt / Dupes</div><div class="kpi-value">${arrExemptLog.length} / ${arrDupLog.length}</div><div class="kpi-sub">Removed from totals</div></div>
+</div>
+
+<table>
+  <thead><tr><th>Account Director</th><th>Deals</th><th class="money">ARR Won</th><th class="money">Target</th><th>Attainment</th><th class="money">Gap</th></tr></thead>
+  <tbody>
+    ${adARRRows}
+    <tr class="total">
+      <td>Team</td>
+      <td>${teamARR.deals}</td>
+      <td class="money">${fmt(teamARR.won)}</td>
+      <td class="money">${fmt(teamARR.target)}</td>
+      <td class="${teamARR.target > 0 && teamARR.won / teamARR.target >= 1 ? "green" : teamARR.target > 0 && teamARR.won / teamARR.target >= 0.7 ? "amber" : "red"}">${pct(teamARR.target > 0 ? teamARR.won / teamARR.target : 0)}</td>
+      <td class="money ${(teamARR.target - teamARR.won) > 0 ? "red" : "green"}">${(teamARR.target - teamARR.won) > 0 ? fmt(teamARR.target - teamARR.won) + " gap" : "✓ Covered"}</td>
+    </tr>
+  </tbody>
+</table>` : ""}
+
+<!-- Bullet Summary -->
+<h2>Executive Summary</h2>
+<div class="bullet-section">
+  <h3>OI Performance</h3>
+  <ul>
+    <li>Team has won <strong>${fmt(teamOI.won)}</strong> against a FY budget of <strong>${fmt(teamOI.budget)}</strong> — <strong>${pct(teamOI.budget > 0 ? teamOI.won / teamOI.budget : 0)}</strong> attainment</li>
+    <li>Total forecast (Won + Commit) stands at <strong>${fmt(teamOI.forecast)}</strong></li>
+    <li>Open pipeline of <strong>${fmt(teamOI.pipe)}</strong> across ${data.filter((r) => r._stageSummary === "Pipe").length} deals</li>
+    ${adOI.map((a) => `<li>${a.name}: <strong>${fmt(a.won)}</strong> won (${pct(a.attainment)} of budget) · <strong>${fmt(a.commit)}</strong> commit pipe · <strong>${fmt(a.pipe)}</strong> open</li>`).join("")}
+  </ul>
+</div>
+${arrDeals.length > 0 ? `
+<div class="bullet-section">
+  <h3>ARR Performance</h3>
+  <ul>
+    <li>Team ARR won: <strong>${fmt(teamARR.won)}</strong> against target of <strong>${fmt(teamARR.target)}</strong> — <strong>${pct(teamARR.target > 0 ? teamARR.won / teamARR.target : 0)}</strong> attainment</li>
+    <li>${arrExemptLog.length} deals exempt from ARR · ${arrDupLog.length} duplicate rows removed</li>
+    ${arrByAD.map((a) => `<li>${a.name}: <strong>${fmt(a.won)}</strong> ARR won (${pct(a.attainment)} of target) — ${(a.target - a.won) > 0 ? fmt(a.target - a.won) + " remaining" : "✓ target covered"}</li>`).join("")}
+  </ul>
+</div>` : ""}
+<div class="bullet-section">
+  <h3>Baseline Growth (ARR Uplift Targets)</h3>
+  <ul>
+    ${arrBaseData.slice(0, 15).map((r) => `<li>${r.a} (${r.ad.split(" ")[0]}): baseline <strong>${fmt(r.base)}</strong> · ${Math.round(r.uplift * 100)}% uplift target = <strong>${fmt(r.base * r.uplift)}</strong></li>`).join("")}
+    ${arrBaseData.length > 15 ? `<li>…and ${arrBaseData.length - 15} more accounts</li>` : ""}
+  </ul>
+</div>
+
+<div class="footer">E.V.E — Elevate Value Add Engine · Exported ${today2}</div>
+</body>
+</html>`
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `EVE_Dashboard_Export_${today()}.html`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   // ── PPTX ──
   async function handleExportPPTX() {
     if (data.length === 0) return alert("No data loaded.")
@@ -448,6 +666,13 @@ export function ReportsTab() {
           <ExportCard icon={<Presentation className="w-5 h-5" />} label="Executive PPTX" desc="Branded PowerPoint with charts & leaderboard" onClick={handleExportPPTX} />
           <ExportCard icon={<FileText className="w-5 h-5" />} label="Weekly PDF" desc="Print-formatted forecast report" onClick={() => window.print()} />
           <ExportCard icon={<TrendingUp className="w-5 h-5" />} label="Team Attainment CSV" desc="YTD + Q1–Q4 attainment by AD" onClick={exportAttainment} />
+          <ExportCard
+            icon={<BarChart2 className="w-5 h-5" />}
+            label="HTML Dashboard Export"
+            desc="Self-contained HTML with OI + ARR summary, budgets, actuals, baseline growth — paste into any dashboard"
+            onClick={exportHTMLDashboard}
+            badge="NEW"
+          />
         </CardContent>
       </Card>
 
