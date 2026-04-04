@@ -355,22 +355,34 @@ export function PipeCreationTab() {
           <div className="rounded-xl border bg-card p-4">
             <h3 className="text-sm font-semibold mb-4">Pipeline Created by Month</h3>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={monthlyData.map(m => ({
-                month: m.month,
-                Created: m.created.length,
-                Won: m.won.length,
-                "Still Open": m.pipe.length,
-                Value: m.total,
-              }))} barGap={2}>
+              <BarChart
+                data={monthlyData.map(m => ({
+                  month: m.month,
+                  Created: m.created.length,
+                  Won: m.won.length,
+                  "Still Open": m.pipe.length,
+                  Value: m.total,
+                }))}
+                barGap={2}
+                style={{ background: "transparent" }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                <YAxis yAxisId="count" orientation="left" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="count" orientation="left" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="value" orientation="right"
                   tickFormatter={(v: number) => `£${Math.round(v/1000)}k`}
                   tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  axisLine={false} tickLine={false}
                 />
                 <Tooltip
-                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: "hsl(var(--foreground))",
+                  }}
+                  cursor={{ fill: "hsl(var(--muted))", opacity: 0.5 }}
                   formatter={((value: number, name: string) => name === "Value" ? [fmt(value), name] : [value, name]) as any}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />

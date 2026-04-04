@@ -214,26 +214,33 @@ export function parseARRReport(rawText: string): ARRImportResult {
   const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ""))
 
   // ── 2. Map header indices ──
+  // Exact match first, then partial — prevents "Total ABC Currency" matching "Total ABC"
   const idx = (names: string[]): number => {
     for (const name of names) {
-      const i = headers.findIndex((h) => h.toLowerCase().includes(name.toLowerCase()))
-      if (i >= 0) return i
+      // Try exact match first (case-insensitive)
+      const exact = headers.findIndex((h) => h.toLowerCase() === name.toLowerCase())
+      if (exact >= 0) return exact
+    }
+    for (const name of names) {
+      // Fall back to partial match
+      const partial = headers.findIndex((h) => h.toLowerCase().includes(name.toLowerCase()))
+      if (partial >= 0) return partial
     }
     return -1
   }
 
   const cols = {
     closeDate:            idx(["Close Date"]),
-    currency:             idx(["Total ABC Currency", "Currency"]),
+    currency:             idx(["Total ABC Currency"]),
     totalAbc:             idx(["Total ABC"]),
     stage:                idx(["Stage"]),
     accountOwner:         idx(["Account Owner"]),
-    parentAccountOwner:   idx(["Parent Account Owner"]),
+    parentAccountOwner:   idx(["Parent Account Owner Name", "Parent Account Owner"]),
     accountTeam:          idx(["Account Team"]),
     opportunityId:        idx(["Opportunity ID"]),
     accountName:          idx(["Account Name"]),
     user:                 idx(["User"]),
-    ultimateParent:       idx(["Ultimate Parent"]),
+    ultimateParent:       idx(["Ultimate Parent Account Name", "Ultimate Parent"]),
     opportunityName:      idx(["Opportunity Name"]),
   }
 
@@ -492,10 +499,15 @@ export function parseCombinedReport(rawText: string): CombinedReportResult {
   // ── Parse headers ──
   const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ""))
 
+  // Exact match first, then partial — prevents "Total ABC Currency" matching "Total ABC"
   const idx = (names: string[]): number => {
     for (const name of names) {
-      const i = headers.findIndex((h) => h.toLowerCase().includes(name.toLowerCase()))
-      if (i >= 0) return i
+      const exact = headers.findIndex((h) => h.toLowerCase() === name.toLowerCase())
+      if (exact >= 0) return exact
+    }
+    for (const name of names) {
+      const partial = headers.findIndex((h) => h.toLowerCase().includes(name.toLowerCase()))
+      if (partial >= 0) return partial
     }
     return -1
   }

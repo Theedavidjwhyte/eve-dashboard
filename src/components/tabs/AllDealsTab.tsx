@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -47,6 +48,7 @@ export function AllDealsTab() {
   const [sortCol, setSortCol] = useState<SortCol>("_val")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [showAddForm, setShowAddForm] = useState(false)
+  const [dealCard, setDealCard] = useState<Deal | null>(null)
   const [form, setForm] = useState({
     user: USERS[0], oppName: "", accountName: "", val: "",
     abc: "", closeDate: "", stage: "Discovery", commit: "Pipeline",
@@ -344,14 +346,23 @@ export function AllDealsTab() {
                       <TableCell className="font-medium">{(r.User ?? "").split(" ")[0]}</TableCell>
                       <TableCell className="font-mono text-xs text-primary">{r._elvId ?? ""}</TableCell>
                       <TableCell className="max-w-[140px] truncate text-xs">{r["Account Name"] ?? ""}</TableCell>
-                      <TableCell className="font-medium max-w-[180px] truncate text-xs">
-                        {r["Opportunity Name"] ?? ""}
-                        {isManual && (
-                          <button onClick={() => r._manualId && removeManualDeal(r._manualId)}
-                            className="ml-1.5 text-destructive hover:text-destructive/80">
-                            <Trash2 className="w-3 h-3 inline" />
+                      <TableCell className="font-medium max-w-[200px] text-xs">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <button
+                            onClick={() => setDealCard(r)}
+                            className="truncate text-left hover:text-primary hover:underline transition-colors flex items-center gap-1 group"
+                            title="Click to view deal details"
+                          >
+                            <span className="truncate">{r["Opportunity Name"] ?? ""}</span>
+                            <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
                           </button>
-                        )}
+                          {isManual && (
+                            <button onClick={() => r._manualId && removeManualDeal(r._manualId)}
+                              className="ml-0.5 text-destructive hover:text-destructive/80 shrink-0">
+                              <Trash2 className="w-3 h-3 inline" />
+                            </button>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-bold text-xs tabular-nums">{fmt(r._val ?? 0)}</TableCell>
                       <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
@@ -435,6 +446,79 @@ export function AllDealsTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Deal Card Modal ─────────────────────────────────────────────────── */}
+      <Dialog open={!!dealCard} onOpenChange={(o) => !o && setDealCard(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base leading-snug pr-6">
+              {dealCard?.["Opportunity Name"] ?? "Deal Details"}
+            </DialogTitle>
+          </DialogHeader>
+          {dealCard && (
+            <div className="space-y-4 text-sm">
+              {/* Key metrics row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-muted/40 rounded-lg p-3 text-center">
+                  <div className="text-xs text-muted-foreground mb-1">OI Value</div>
+                  <div className="text-lg font-bold text-primary">{fmt(dealCard._val ?? 0)}</div>
+                </div>
+                <div className="bg-muted/40 rounded-lg p-3 text-center">
+                  <div className="text-xs text-muted-foreground mb-1">Total ABC</div>
+                  <div className="text-lg font-bold">{fmt(dealCard._abc ?? 0)}</div>
+                </div>
+                <div className="bg-muted/40 rounded-lg p-3 text-center">
+                  <div className="text-xs text-muted-foreground mb-1">Stage</div>
+                  <div className="text-lg font-bold">
+                    <StatusBadge status={dealCard._stageSummary ?? "Pipe"} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Detail grid */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 border rounded-lg p-4">
+                {([
+                  ["Account Director", dealCard.User ?? "—"],
+                  ["Account Name", String(dealCard["Account Name"] ?? "—")],
+                  ["Ultimate Parent", String(dealCard["Ultimate Parent Account Name"] ?? "—")],
+                  ["Close Date", String(dealCard["Close Date"] ?? dealCard["Close Date (2)"] ?? "—")],
+                  ["Month", dealCard._month ?? "—"],
+                  ["Commit Status", dealCard._commit ?? "—"],
+                  ["Product", dealCard._product ?? "—"],
+                  ["Push Count", String(dealCard._push ?? 0)],
+                  ["Stage Duration", dealCard._stageDur ? `${dealCard._stageDur} days` : "—"],
+                  ["Services", dealCard._services ? fmt(dealCard._services) : "—"],
+                  ["Initials", dealCard._initials ? fmt(dealCard._initials) : "—"],
+                  ["Opportunity ID", String(dealCard["Opportunity ID"] ?? "—")],
+                  ["Created By", String(dealCard._createdBy ?? dealCard["Created By"] ?? "—")],
+                  ["ELV ID", dealCard._elvId ?? "—"],
+                ] as [string, string][]).map(([label, value]) => (
+                  <div key={label} className="flex items-start gap-2">
+                    <span className="text-muted-foreground text-xs w-32 shrink-0 pt-0.5">{label}</span>
+                    <span className="font-medium text-xs break-words">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Next Step */}
+              {dealCard["Next Step"] && (
+                <div className="border rounded-lg p-4">
+                  <div className="text-xs text-muted-foreground mb-1.5 font-semibold uppercase tracking-wider">Next Step</div>
+                  <p className="text-sm leading-relaxed">{String(dealCard["Next Step"])}</p>
+                </div>
+              )}
+
+              {/* Risk flags */}
+              {(dealCard._risk || dealCard._keyDeal) && (
+                <div className="flex gap-2">
+                  <RiskBadge risk={dealCard._risk} />
+                  <KeyDealBadge keyDeal={dealCard._keyDeal} />
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

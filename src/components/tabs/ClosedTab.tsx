@@ -18,8 +18,9 @@ import { USERS } from "@/config/users"
 import { openDealModal } from "@/App"
 import { getLostInsight, getWonInsight } from "@/lib/insights"
 import type { Deal, LostReview } from "@/types"
-import { Copy, Check, RefreshCw } from "lucide-react"
+import { Copy, Check, RefreshCw, Link2 } from "lucide-react"
 import { generateCelebration, generateMultiMonthCelebration } from "@/lib/celebrationBuilder"
+import { lookupELVAccount } from "@/config/elvAccounts"
 
 type ClosedView = "won" | "lost"
 
@@ -285,6 +286,7 @@ export function ClosedTab() {
                     <TableHead>AD</TableHead>
                     <TableHead>Opportunity</TableHead>
                     <TableHead>Account</TableHead>
+                    <TableHead>ELV Match</TableHead>
                     <TableHead className="text-right">Value</TableHead>
                     <TableHead>Month</TableHead>
                     <TableHead className="text-right">Pushes</TableHead>
@@ -296,8 +298,9 @@ export function ClosedTab() {
                 <TableBody>
                   {[...lost].sort((a, b) => (b._val ?? 0) - (a._val ?? 0)).map((r, i) => {
                     const hasReview = !!lostReviews[r["Opportunity Name"] ?? ""]?.reason
+                    const elvMatch = lookupELVAccount(String(r["Account Name"] ?? ""))
                     return (
-                      <TableRow key={i}>
+                      <TableRow key={i} className={elvMatch ? "" : "opacity-90"}>
                         <TableCell>
                           <button
                             onClick={() => openReview(r)}
@@ -310,6 +313,19 @@ export function ClosedTab() {
                         <TableCell>{(r.User ?? "").split(" ")[0]}</TableCell>
                         <TableCell className="font-medium text-xs max-w-[160px] truncate">{r["Opportunity Name"] ?? ""}</TableCell>
                         <TableCell className="text-xs max-w-[120px] truncate">{r["Account Name"] ?? ""}</TableCell>
+                        <TableCell className="text-xs">
+                          {elvMatch ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono text-primary text-[10px] font-bold">{elvMatch.elvId}</span>
+                              <span className="text-muted-foreground text-[10px] flex items-center gap-1">
+                                <Link2 className="w-2.5 h-2.5" />
+                                {elvMatch.parentAccount}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-amber-500 text-[10px]">No match</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-bold text-destructive text-xs">{fmt(r._val ?? 0)}</TableCell>
                         <TableCell className="text-xs">{r._month ?? "—"}</TableCell>
                         <TableCell className="text-right text-xs">{r._push ?? 0}</TableCell>
