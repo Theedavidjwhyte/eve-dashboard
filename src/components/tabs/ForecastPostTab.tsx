@@ -153,7 +153,7 @@ type SortDir = "asc" | "desc"
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export function ForecastPostTab() {
-  const { data, filters, oiTargets, commitCompany, lostReviews } = useDashboardStore()
+  const { data, filters, oiTargets, commitCompany } = useDashboardStore()
 
   // ── State ────────────────────────────────────────────────────────────────────
   const [commentary, setCommentary] = useState("")
@@ -200,13 +200,6 @@ export function ForecastPostTab() {
       userMatchesFilter(r.User, filters.user) &&
       (filters.product === "All" || r._product === filters.product)
     )
-
-  // Sort months chronologically from current month
-  const sortedMonthsFromNow = [...MONTHS].sort((a, b) => {
-    const ai = (MONTHS.indexOf(a) - MONTHS.indexOf(curMonth) + 12) % 12
-    const bi = (MONTHS.indexOf(b) - MONTHS.indexOf(curMonth) + 12) % 12
-    return ai - bi
-  })
 
   // Current month data
   const curDeals = getDeals([curMonth])
@@ -771,7 +764,10 @@ export function ForecastPostTab() {
               {/* Current period info */}
               <div className="flex items-center gap-3">
                 <label className="text-xs text-muted-foreground w-24 shrink-0">Current period</label>
-                <span className="text-sm font-semibold">{curMonth} {now.getFullYear()} · {curQ}</span>
+                <span className="text-sm font-semibold">{curMonth} {now.getFullYear()} · FY26 {curQ}</span>
+                <span className="text-xs text-muted-foreground">
+                  (Q1=Jul–Sep · Q2=Oct–Dec · Q3=Jan–Mar · Q4=Apr–Jun)
+                </span>
               </div>
             </CardContent>
           </Card>

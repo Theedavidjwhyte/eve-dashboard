@@ -191,8 +191,8 @@ export function ARRTab({ scrollTo }: { scrollTo?: string | null }) {
         <div>
           <p className="font-semibold text-lg">No ARR data loaded</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Import your ARR Closed Won report using the <strong>Import Data</strong> button
-            → <strong>ARR Report</strong> tab
+            Import your combined Salesforce report using the <strong>Import Data</strong> button —
+            Closed Won deals are automatically routed to ARR
           </p>
         </div>
       </div>

@@ -26,6 +26,9 @@ import { ForecastPostTab } from "@/components/tabs/ForecastPostTab"
 import { NetworkTab } from "@/components/tabs/NetworkTab"
 import { PipeCreationTab } from "@/components/tabs/PipeCreationTab"
 import { ARRTab } from "@/components/tabs/ARRTab"
+import { ARRMonthlyTab } from "@/components/tabs/ARRMonthlyTab"
+import { ARRExemptTab } from "@/components/tabs/ARRExemptTab"
+import { ARRDupesTab } from "@/components/tabs/ARRDupesTab"
 
 // ── Deal modal event bus ──────────────────────────────────────────────────────
 export interface DealModalState {
@@ -88,11 +91,11 @@ export default function App() {
   }, [])
 
   function renderTab() {
-    // ARR tab and sub-tabs work without OI data
+    // ARR tabs — all work without OI data
     if (currentTab === "arr")         return <ARRTab scrollTo={null} />
-    if (currentTab === "arr-monthly") return <ARRTab scrollTo="monthly" />
-    if (currentTab === "arr-exempt")  return <ARRTab scrollTo="exempt" />
-    if (currentTab === "arr-dupes")   return <ARRTab scrollTo="dupes" />
+    if (currentTab === "arr-monthly") return <ARRMonthlyTab />
+    if (currentTab === "arr-exempt")  return <ARRExemptTab />
+    if (currentTab === "arr-dupes")   return <ARRDupesTab />
     if (currentTab === "network") return <NetworkTab />
 
     if (data.length === 0) {
