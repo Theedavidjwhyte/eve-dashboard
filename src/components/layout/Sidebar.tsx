@@ -1,3 +1,4 @@
+import React from "react"
 import { cn } from "@/lib/utils"
 import { useDashboardStore } from "@/store/dashboardStore"
 import type { TabId } from "@/types"
@@ -37,7 +38,14 @@ interface SidebarProps {
   onImport: () => void
 }
 
-const NAV_SECTIONS = [
+interface NavItem {
+  id: TabId
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  sub?: boolean
+}
+
+const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: "Overview",
     items: [
@@ -66,10 +74,10 @@ const NAV_SECTIONS = [
   {
     label: "ARR",
     items: [
-      { id: "arr"         as TabId, label: "ARR Performance", icon: LineChart },
-      { id: "arr-monthly" as TabId, label: "Monthly Intake",  icon: Calendar  },
-      { id: "arr-exempt"  as TabId, label: "Exemptions",      icon: AlertCircle },
-      { id: "arr-dupes"   as TabId, label: "Duplications",    icon: GitBranch },
+      { id: "arr"         as TabId, label: "ARR Performance", icon: LineChart,   sub: false },
+      { id: "arr-monthly" as TabId, label: "Monthly Intake",  icon: Calendar,    sub: true  },
+      { id: "arr-exempt"  as TabId, label: "Exemptions",      icon: AlertCircle, sub: true  },
+      { id: "arr-dupes"   as TabId, label: "Duplications",    icon: GitBranch,   sub: true  },
     ],
   },
   {
@@ -261,7 +269,7 @@ export function Sidebar({ collapsed, onToggle, onImport }: SidebarProps) {
                 <div className="mx-2 mb-1 border-t border-border/40" />
               )}
               <div className="space-y-0.5">
-                {section.items.map(({ id, label, icon: Icon }) => {
+                {section.items.map(({ id, label, icon: Icon, sub }) => {
                   const active = currentTab === id
                   return (
                     <Tooltip key={id}>
@@ -269,16 +277,21 @@ export function Sidebar({ collapsed, onToggle, onImport }: SidebarProps) {
                         <button
                           onClick={() => setTab(id)}
                           className={cn(
-                            "w-full flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
-                            collapsed ? "justify-center px-0 py-2.5" : "px-3 py-2",
+                            "w-full flex items-center gap-2.5 rounded-md text-sm font-medium transition-colors",
+                            collapsed ? "justify-center px-0 py-2.5" : sub ? "pl-6 pr-3 py-1.5" : "px-3 py-2",
                             active
                               ? "bg-primary text-primary-foreground"
+                              : sub
+                              ? "text-muted-foreground/80 hover:bg-muted hover:text-foreground"
                               : "text-muted-foreground hover:bg-muted hover:text-foreground"
                           )}
                         >
-                          <Icon className="shrink-0 w-4 h-4" />
+                          {!collapsed && sub && (
+                            <span className="w-px h-3 bg-border rounded-full shrink-0" />
+                          )}
+                          <Icon className={cn("shrink-0", sub ? "w-3.5 h-3.5" : "w-4 h-4")} />
                           {!collapsed && (
-                            <span className="truncate text-[13px]">{label}</span>
+                            <span className={cn("truncate", sub ? "text-[12px]" : "text-[13px]")}>{label}</span>
                           )}
                         </button>
                       </TooltipTrigger>
